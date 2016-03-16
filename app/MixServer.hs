@@ -7,10 +7,11 @@ import Network --connectTo, PortID
 --import Network.Socket
 import System.IO
 import Control.Exception
-import Control.Concurrent
---import Control.Concurrent.Chan
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.STM.TChan
 import Control.Monad (liftM, when)
 import Control.Monad.Fix (fix)
+import Control.Monad.STM (atomically)
 import Data.Word
 import Data.List (elemIndex)
 import Foreign.Storable
@@ -131,10 +132,10 @@ runServer p s = do
 --  setSocketOption sock ReuseAddr 1
 --  bind sock (SockAddrInet port iNADDR_ANY)
     sock <- listenOn (PortNumber $ fromIntegral p) -- FIXME consider converting to PortNumber earlier
-    chan <- newChan
+    chan <- newTChanIO
     player <- simpleNew Nothing "player" Play Nothing "Player for mixed audio" stereoPcm16 Nothing Nothing
     forkIO $ fix $ \loop -> do
-        msg <- readChan chan
+        msg <- atomically $ readTChan chan
         -- FIXME this strategy only works for one connected client at a time at the moment
         playAudio player msg
         loop
@@ -159,7 +160,7 @@ type RawPacket = (Int, [Word16])
 packLen :: Word16
 packLen = 48000
 
-mainLoop :: Socket -> Chan (R.Packet [Word16]) -> Int -> IO ()
+mainLoop :: Socket -> TChan (R.Packet [Word16]) -> Int -> IO ()
 mainLoop sock chan msgNum = do
   -- FIXME use host and port?
   (hdl, h, p) <- accept sock
@@ -171,14 +172,14 @@ mainLoop sock chan msgNum = do
 testPacket :: [Word16]
 testPacket = [packLen] ++ [0..(packLen - 1)]
 
-runConn :: Handle -> Chan (R.Packet [Word16]) -> Int -> IO ()
+runConn :: Handle -> TChan (R.Packet [Word16]) -> Int -> IO ()
 runConn hdl chan msgNum = do
-    let broadcast msg = writeChan chan msg
+    let broadcast msg = writeTChan chan msg
 --    hdl <- socketToHandle sock ReadWriteMode
     hSetBuffering hdl NoBuffering
     hSetBinaryMode hdl True
 
-    commLine <- dupChan chan
+    commLine <- atomically $ dupTChan chan
 
     -- fork off a thread for reading from the duplicated channel
 {-    reader <- forkIO $ fix $ \loop -> do
@@ -195,7 +196,7 @@ runConn hdl chan msgNum = do
         case bytesRead of
             48012 -> do
                 case P.doParse filled of
-                    Just pkt -> broadcast pkt >> loop
+                    Just pkt -> (atomically $ broadcast pkt) >> loop
                     Nothing  -> putStrLn $ "Error occurred parsing RTP packet."
             _     -> putStrLn $ "An error occurred: only read " ++ (show bytesRead) ++ " bytes."
              -- If an exception is caught, send a message and break the loop
