@@ -25,7 +25,7 @@ data Sinusoid =
              }
 
 -- FIXME
-fs = 44100
+fs = 48000
 
 pType :: Word8
 pType = 0 -- FIXME
