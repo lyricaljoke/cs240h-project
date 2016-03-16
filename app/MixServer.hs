@@ -225,6 +225,6 @@ readPacket hdl n buf = do
 playAudio :: Simple -> R.Packet [Word16] -> IO ()
 playAudio player p = do
     putStrLn $ "Got packet " ++ (show $ R.sequenceNum $ R.header p) ++ " from source " ++ (show $ R.ssrc $ R.header p) ++ "."
-    threadDelay 500000 -- Half a second.  FIXME.
+    --threadDelay 500000 -- Half a second.  FIXME.
     --simpleWrite player p
 

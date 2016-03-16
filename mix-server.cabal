@@ -42,7 +42,7 @@ executable mix-server
                      , network-house
                      , pulse-simple
                      , stm
-                     , time
+                     , time >= 1.6
   default-language:    Haskell2010
 
 test-suite mix-server-test
