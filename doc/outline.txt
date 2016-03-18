@@ -28,6 +28,8 @@
      - sinusoid
      - live playback
    - networking
+ - possible improvements
+ - what I learned
 
 IMPROVEMENTS:
  - abstract over payload type
@@ -38,3 +40,4 @@ IMPROVEMENTS:
  - command line arg for latency
  - UDP
  - Clipping detection
+ - hide private interfaces (RTP)
