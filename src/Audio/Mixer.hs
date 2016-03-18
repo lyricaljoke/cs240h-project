@@ -59,7 +59,7 @@ getFrame mix samples = do
     putStrLn $ "Culled " ++ (show $ M.foldr (+) 0 culled) ++
                " old packet(s) from " ++ (show $ L.length $ M.keys culled) ++
                " source(s)."
-    let base = take samples (repeat 0)
+    let base = replicate samples 0
     let (ids, mixed) = M.foldrWithKey (\k pkts (ssrcs, frame) -> (ssrcs ++ [k], addUp frame (getSlice pkts cutoffUs samples))) ([], base) (buffers trimmedMix)
     let nextStartTimeUs = cutoffUs + round (((fromIntegral samples) / fs) * 1000000.0)
     let sequenceNum = packetsSent trimmedMix + 1
@@ -72,7 +72,7 @@ getFrame mix samples = do
     return (pkt, updateRecords trimmedMix nextStartTimeUs sequenceNum)
 
 addUp :: (Num a) => [a] -> [a] -> [a]
-addUp x y = [(x' + y') | x' <- x, y' <- y] 
+addUp x y = zipWith (+) x y
 
 -- | FIXME.
 updateRecords :: Mixer -> Integer -> Word16 -> Mixer
@@ -85,9 +85,10 @@ updateRecords mix timestamp packetNum = mix { nextStartTimeUs = timestamp, packe
 getSlice :: [T.PktType] -> Integer -> Int -> [Word16]
 getSlice pkts start samps =
     let startSample = sampleNumberAtTime start (head pkts)
+        zeros = repeat 0
         adjStart = max startSample 0
-        samples = take (samps - adjStart) ((snd $ L.splitAt adjStart $ L.concatMap R.payload pkts) ++ repeat 0)
-    in (take (samps - (length samples)) $ repeat 0) ++ samples
+        samples = take (samps - adjStart) ((snd $ L.splitAt adjStart $ L.concatMap R.payload pkts) ++ zeros)
+    in (take (samps - (length samples)) zeros) ++ samples
 
 -- Arguments: mixer, current time in microseconds.
 sliceStart :: Mixer -> Integer -> Integer
@@ -102,7 +103,7 @@ addNewPackets mix = do
     newPacket <- atomically $ tryReadTChan (channel mix)
     case newPacket of
         Just pkt -> do
-            putStrLn $ "pkt ts: " ++ (show $ R.timestamp $ R.header pkt)
+            putStrLn $ "pkt ts: " ++ (show $ getTimestamp pkt)
             addNewPackets $ mix { buffers = M.insertWith (++) (ssrcOf pkt) [pkt] (buffers mix) }
         Nothing  -> return mix
 
@@ -113,8 +114,6 @@ cullOldPackets mix cutoffUs =
     let (culled, newBuffers) = M.mapAccumWithKey (cullAccum cutoffUs) M.empty (buffers mix)
     -- Delete any inactive channels from the map.
     in (culled, mix {buffers = M.filter (not . L.null) newBuffers})
-    --(M.empty, mix { buffers = newBuffers } ) where
-    --    newBuffers = 
 
 -- | FIXME.
 cullAccum :: Integer -> CullInfo -> Word32 -> [T.PktType] -> (CullInfo, [T.PktType])
@@ -130,10 +129,15 @@ fs = 48000 :: Float
 rtpVersion = 2 :: Word8
 payloadType = 999
 
-
 sampleNumberAtTime :: Integer -> T.PktType -> Int
 sampleNumberAtTime tUs pkt =
-    round $ (fromIntegral (tUs - (fromIntegral $ R.timestamp $ R.header pkt))) * fs / 1000000
+    round $ (fromIntegral (tUs - getTimestamp pkt)) * fs / 1000000
+
+getTimestamp :: T.PktType -> Integer
+getTimestamp p =
+    case (R.extHeader p) of
+        Just (PrecisionTimestamp h l) -> fromIntegral $ highPrecToTimestampUs (h, l)
+        _                             -> error "Low precision timestamps not yet supported."
 
 -- | Get the acceptable latency value of T.PktType channel in microseconds.
 latUs :: Mixer -> Int

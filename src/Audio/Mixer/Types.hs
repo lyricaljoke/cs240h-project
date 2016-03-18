@@ -2,6 +2,7 @@ module Audio.Mixer.Types
   ( ExtType
   , PayloadType
   , PktType
+  , fs
   ) where
 
 import Audio.Mixer.Extensions
@@ -13,3 +14,5 @@ type PayloadType = [Word16]
 type ExtType = AudioMixerExtension
 type PktType = R.Packet ExtType PayloadType
 
+-- | Sampling rate in Hz.
+fs = 48000 :: Float

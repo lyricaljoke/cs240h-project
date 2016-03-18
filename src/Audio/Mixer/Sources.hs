@@ -50,13 +50,13 @@ getSinePacket s samples = do
     threadDelay $ round ((fromIntegral $ samples * 1000000) / fs) -- FIXME -- we'll fall behind!
     let sampOffset = (sampleIdx s) `mod` (fromIntegral (sampsPerPeriod s))
     let rawData = map round ([16384.0 * (sin $ 2*pi*(freqHz s) * ((fromIntegral t)/fs)) | t<-(take samples [(-1*sampOffset)..])])
-    --let bounds = (0, samples - 1)
-    --let arr = array bounds (zip [(fst bounds)..(snd bounds)] rawData)
     let ssrc = sourceId s -- FIXME
     timestamp <- fromIntegral <$> getSystemTimeUs
-    let hdr = R.Header 2 False False 0 False pType (fromIntegral $ packetCount s) timestamp ssrc []
+    (h, l) <- getSystemTimeHighP
+    let highPTimestamp = PrecisionTimestamp h l
+    let hdr = R.Header 2 False True 0 False pType (fromIntegral $ packetCount s) timestamp ssrc []
     -- FIXME let ext = Just $ Prec
-    return (R.RawPacket hdr Nothing rawData,
+    return (R.RawPacket hdr (Just highPTimestamp) rawData,
             Sinusoid (sampsPerPeriod s) (freqHz s) ((sampleIdx s) + (fromIntegral samples)) ((packetCount s) + 1) (sourceId s))
 
 -- | FIXME

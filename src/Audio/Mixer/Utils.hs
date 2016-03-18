@@ -1,5 +1,7 @@
 module Audio.Mixer.Utils
     ( getSystemTimeUs
+    , getSystemTimeHighP
+    , highPrecToTimestampUs
     ) where
 
 import Data.Bits
@@ -22,4 +24,7 @@ toTimestampHighP t =
     let nanos = (fromIntegral (diffTimeToPicoseconds . utctDayTime $ t) `div` 1000) :: Word64
     in (fromIntegral $ nanos `shiftR` 32, fromIntegral $ nanos .&. 0xFFFFFFFF)
 
-
+highPrecToTimestampUs :: (Word32, Word32) -> Word64
+highPrecToTimestampUs (h, l) =
+    (((fromIntegral h :: Word64) `shiftL` 32) + fromIntegral l) `div` 1000
+    

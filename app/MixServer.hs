@@ -135,8 +135,7 @@ runServer p s = do
     sock <- listenOn (PortNumber $ fromIntegral p) -- FIXME consider converting to PortNumber earlier
     chan <- newTChanIO
     player <- simpleNew Nothing "player" Play Nothing "Player for mixed audio" monoPcm16 Nothing Nothing
-    let mixer = newMixer 5000000 s chan
-    forkIO $ playbackLoop player mixer --(\loop m -> do
+    forkIO $ playbackLoop player (newMixer 1000000 s chan) --(\loop m -> do
         --msg <- atomically $ readTChan chan
 {-
         (msg, mixer') <- getFrame mixer 12000
@@ -198,13 +197,13 @@ runConn hdl chan msgNum = do
         loop
 -} 
     handle (\(SomeException _) -> return ()) $ fix $ \loop -> do
-        --rawPacket <- allocaArray actualPackLen (readPacket hdl 48012) -- FIXME ugly int cast
-        let inArray = listArray (0, 48011) (take 48012 (repeat 0)) :: Chunk
+        --rawPacket <- allocaArray actualPackLen (readPacket hdl 48024) -- FIXME ugly int cast
+        let inArray = listArray (0, 48023) (take 48024 (repeat 0)) :: Chunk
         mutArray <- thaw inArray
-        bytesRead <- hGetArray hdl mutArray 48012
+        bytesRead <- hGetArray hdl mutArray 48024
         filled <- toInPack <$> freeze mutArray
         case bytesRead of
-            48012 -> do
+            48024 -> do
                 case P.doParse filled of
                     Just pkt -> (atomically $ broadcast pkt) >> loop
                     Nothing  -> putStrLn $ "Error occurred parsing RTP packet."
@@ -234,6 +233,8 @@ readPacket hdl n buf = do
 -- |FIXME not really implemented.
 playAudio :: Simple -> T.PktType -> IO ()
 playAudio player p = do
-    putStrLn $ "Playing packet of length " ++ (show $ length $ R.payload p)
+    putStrLn "p1"
+    putStrLn $ "playing packet with length " ++ (show $ length $ R.payload p)
+    putStrLn "p2"
     simpleWrite player (R.payload p)
 
