@@ -49,7 +49,7 @@ getSinePacket :: Sinusoid -> Int -> IO (R.Packet Payload, Sinusoid)
 getSinePacket s samples = do
     threadDelay $ round ((fromIntegral $ samples * 1000000) / fs) -- FIXME -- we'll fall behind!
     let sampOffset = (sampleIdx s) `mod` (fromIntegral (sampsPerPeriod s))
-    let rawData = map round ([sin $ 2*pi*(freqHz s) * ((fromIntegral t)/fs) | t<-(take samples [(-1*sampOffset)..])])
+    let rawData = map round ([16384.0 * (sin $ 2*pi*(freqHz s) * ((fromIntegral t)/fs)) | t<-(take samples [(-1*sampOffset)..])])
     --let bounds = (0, samples - 1)
     --let arr = array bounds (zip [(fst bounds)..(snd bounds)] rawData)
     let ssrc = sourceId s -- FIXME

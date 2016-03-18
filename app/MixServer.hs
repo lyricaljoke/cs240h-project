@@ -133,14 +133,23 @@ runServer p s = do
 --  bind sock (SockAddrInet port iNADDR_ANY)
     sock <- listenOn (PortNumber $ fromIntegral p) -- FIXME consider converting to PortNumber earlier
     chan <- newTChanIO
-    player <- simpleNew Nothing "player" Play Nothing "Player for mixed audio" stereoPcm16 Nothing Nothing
-    forkIO $ fix $ \loop -> do
-        msg <- atomically $ readTChan chan
-        -- FIXME this strategy only works for one connected client at a time at the moment
+    player <- simpleNew Nothing "player" Play Nothing "Player for mixed audio" monoPcm16 Nothing Nothing
+    let mixer = newMixer 5000000 s chan
+    forkIO $ playbackLoop player mixer --(\loop m -> do
+        --msg <- atomically $ readTChan chan
+{-
+        (msg, mixer') <- getFrame mixer 12000
         playAudio player msg
-        loop
+        loop mixer') mixer
+-}
     mainLoop sock chan 0
     simpleFree player
+
+playbackLoop :: Simple -> Mixer -> IO ()
+playbackLoop player mixer = do
+        (msg, mixer') <- getFrame mixer 12000
+        playAudio player msg
+        playbackLoop player mixer'
 
 stereoPcm16 :: SampleSpec
 stereoPcm16 = SampleSpec (S16 LittleEndian) 48000 2
@@ -224,7 +233,8 @@ readPacket hdl n buf = do
 -- |FIXME not really implemented.
 playAudio :: Simple -> R.Packet [Word16] -> IO ()
 playAudio player p = do
-    putStrLn $ "Got packet " ++ (show $ R.sequenceNum $ R.header p) ++ " from source " ++ (show $ R.ssrc $ R.header p) ++ "."
+    putStrLn $ "Playing packet of length " ++ (show $ length $ R.payload p)
+    simpleWrite player (R.payload p)
     --threadDelay 500000 -- Half a second.  FIXME.
     --simpleWrite player p
 
