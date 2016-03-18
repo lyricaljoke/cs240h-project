@@ -1,3 +1,6 @@
+-- | This module defines the audio mixer logic.  It provides an interface to
+-- a stateful audio mixer that can mix multiple channels while guaranteeing
+-- a maximum latency.
 module Audio.Mixer
     ( Mixer
     , getFrame
@@ -17,19 +20,18 @@ import Audio.Mixer.Extensions
 import qualified Audio.Mixer.Types as T
 import Audio.Mixer.Utils
 
--- TODO add extension header support for source leveling
-
--- | FIXME
+-- | Defines the audio mixer itself.
 data Mixer =
-    Mixer { -- Maximum time the mixer will wait before dropping T.PktType frame
-            -- from T.PktType particular channel.  This does not include any kind of
-            -- rendering / endpoint playback latency.  FIXME consider Integer
+    Mixer { -- Maximum time (microseconds) the mixer will wait before dropping
+            -- a frame from a particular channel.  This does not include any
+            -- kind of rendering / endpoint playback latency.
             acceptableLatencyUs :: Int
-            -- FIXME
+            -- Unique source identifier for this mixer.
           , sourceId :: Word32
             -- comms channel for receiving all packets
           , channel :: TChan T.PktType
-            -- FIXME.
+            -- Mapping from audio channel (identified by its SSRC) to packet
+            -- queues.
           , buffers :: M.Map Word32 [T.PktType]
             -- FIXME
           , nextStartTimeUs :: Integer

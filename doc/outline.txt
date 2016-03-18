@@ -11,6 +11,7 @@
      - properties
      - performance
  - Audio mixer
+   - requirements
    - api design
    - mixer state
      - basic fields
@@ -22,7 +23,18 @@
      - memory usage?
      - measured latency
  - toy test application
+   - overall application design
    - sound source class
      - sinusoid
      - live playback
    - networking
+
+IMPROVEMENTS:
+ - abstract over payload type
+ - intMap in audio mixer
+ - SSRC assignment in network model
+ - modify latency at runtime
+ - high precision timestamp output from mixer
+ - command line arg for latency
+ - UDP
+ - Clipping detection

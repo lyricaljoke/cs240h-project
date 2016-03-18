@@ -2,14 +2,11 @@
 -- FIXME modify!
 module Main where
  
--- FIXME choose ONE of these network things
 import Network --connectTo, PortID
---import Network.Socket
 import System.IO
 import Control.Exception
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM.TChan
-import Control.Monad (liftM, when)
 import Control.Monad.Fix (fix)
 import Control.Monad.STM (atomically)
 import Data.Word
@@ -22,14 +19,14 @@ import Sound.Pulse.Simple
 import Audio.Mixer
 import Audio.Mixer.Sources
 import qualified Audio.Mixer.Types as T
--- FIXME remove; put in lib only!
 import qualified Net.RTP as R
 import qualified Net.PacketParsing as P
 import Net.Packet(Chunk, chunks, OutPacket, outLen, toInPack)
 import Data.Array.Unboxed(bounds, listArray)
 import Data.Array.IO
 import Data.Array.MArray
- 
+
+-- | Audio mix server / client entry point. 
 main :: IO ()
 main = do
     args <- getArgs
@@ -37,32 +34,40 @@ main = do
         Left msg -> do
             putStrLn $ "Failed parsing arguments: " ++ msg
             doUsage
-        Right (ClientParams h p s) -> runClient h p s
+        Right (ClientParams h p s f) -> runClient h p s f
         Right (HostParams p s)     -> runServer p s
 
 -- | Print program usage.
 doUsage :: IO ()
 doUsage = do
     putStrLn "Usage:"
-    putStrLn "pulse-test [-c] [-s] [-h hostname] [-p port] [-ssrc source-id]"
-    putStrLn "-c = client mode; hostname, port, and source id required for initial connection"
+    putStrLn "pulse-test [-c] [-s] [-h hostname] [-p port] [-ssrc source-id] [-f freq (Hz)]"
+    putStrLn "-c = client mode; hostname, port, source id and frequency required"
     putStrLn "-s = server mode; port and source id argument required"
 
+-- | Data type for containing command line options.
+ -- TODO change these to PortIDs or PortNumbers?
 data RunParams = ClientParams { host :: String
-                              , port :: Word16  -- FIXME change these to PortIDs or PortNumbers?
-                              , ssrc :: Word32 }
+                              , port :: Word16 
+                              , ssrc :: Word32 
+                              , freq :: Float  }
                | HostParams   { port :: Word16 
                               , ssrc :: Word32 }
     deriving (Eq, Show)
 
--- |FIXME.
-runClient :: String -> Word16 -> Word32 -> IO ()
-runClient h p s = do
+-- | Client mode entry point.
+-- Args:
+--      h: hostname
+--      p: port number
+--      s: unique SSRC for RTP
+--      f: frequency (Hz) of test sinusoid
+runClient :: String -> Word16 -> Word32 -> Float -> IO ()
+runClient h p s f = do
     putStrLn $ "Connecting to " ++ h ++ " on port " ++ (show p)
-    hdl <- connectTo h (PortNumber $ fromIntegral p) -- FIXME FIXME
+    hdl <- connectTo h (PortNumber $ fromIntegral p)
     hSetBuffering hdl NoBuffering
     hSetBinaryMode hdl True
-    sinSource <- newSinusoid 256.0 s
+    sinSource <- newSinusoid f s
     putStrLn "constructed sinusoid."
     loop hdl sinSource where
         loop = \hdl source -> do
@@ -73,6 +78,7 @@ runClient h p s = do
             writeOutPacket hdl (chunks serialized)
             loop hdl source'
 
+-- | Write a collection of Chunks to a given handle.
 writeOutPacket :: Handle -> [Chunk] -> IO ()
 writeOutPacket _ [] = return ()
 writeOutPacket hdl (x:xs) = do
@@ -80,24 +86,14 @@ writeOutPacket hdl (x:xs) = do
     hPutArray hdl arr (arraySize x)
     writeOutPacket hdl xs
 
--- FIXME move this
+-- | Determine the size of a chunk (immutable array).
 arraySize :: Chunk -> Int
 arraySize a = max - min + 1
     where
         (min, max) = bounds a
 
-{-
-    capture <- simpleNew Nothing "capture" Record Nothing "client audio capture" stereoPcm16 Nothing Nothing
-    fix $ \loop -> do
-        audio <- simpleRead capture 48000
-        let audioPacket = [fromIntegral (length audio) :: Word16] ++ audio
-        let l = length audioPacket
-        putStrLn $ "writing packet of length " ++ (show l)
-        withArray audioPacket (flip (hPutBuf hdl) (2*l)) -- FIXME replace 2 with sizeof or something
-        --threadDelay $ 500 * 1000
-        loop
--}
-
+-- | Parse the input arguments.  Failure occurs if any required arg is missing
+-- for the given mode, or if the mode (client or server) cannot be determined.
 parseArgs :: [String] -> Either String RunParams
 parseArgs args =
     case (elem "-c" args, elem "-s" args) of
@@ -111,7 +107,8 @@ parseClientArgs args = do
     h <- argAfter "-h" args
     p <- argAfter "-p" args
     s <- argAfter "-ssrc" args
-    return $ ClientParams h (read p) (read s)
+    f <- argAfter "-f" args
+    return $ ClientParams h (read p) (read s) (read f)
 
 parseHostArgs :: [String] -> Either String RunParams
 parseHostArgs args = do
@@ -119,6 +116,8 @@ parseHostArgs args = do
     s <- argAfter "-ssrc" args
     return $ HostParams (read p) (read s)
 
+-- | Retrieve the argument after a given flag in a list.  Failure occurs if
+-- the flag is missing or if it occurs only at the end of the list.
 argAfter ::  String -> [String] -> Either String String
 argAfter flag args =
     case elemIndex flag args of
@@ -127,114 +126,83 @@ argAfter flag args =
             next | idx == (length args) =  Left $ "Missing argument for flag " ++ flag
                  | otherwise = Right (args !! (idx + 1))
 
+-- | Server mode loop entry point.  Accepts connections, adds them to the
+-- active channel, and begins a mixing / playback thread.
+-- Args:
+--      p: port number to accept connections on
+--      s: unique SSRC identifier to sign output packets with
 runServer :: Word16 -> Word32 -> IO ()
 runServer p s = do
---  sock <- socket AF_INET Stream 0
---  setSocketOption sock ReuseAddr 1
---  bind sock (SockAddrInet port iNADDR_ANY)
-    sock <- listenOn (PortNumber $ fromIntegral p) -- FIXME consider converting to PortNumber earlier
+    sock <- listenOn (PortNumber $ fromIntegral p)
     chan <- newTChanIO
-    player <- simpleNew Nothing "player" Play Nothing "Player for mixed audio" monoPcm16 Nothing Nothing
-    forkIO $ playbackLoop player (newMixer 1000000 s chan) --(\loop m -> do
-        --msg <- atomically $ readTChan chan
-{-
-        (msg, mixer') <- getFrame mixer 12000
-        playAudio player msg
-        loop mixer') mixer
--}
+    -- Instantiate a handle for simple mono audio playback.
+    player <- simpleNew Nothing "player" Play Nothing "Player for mixed audio"
+              monoPcm16 Nothing Nothing
+    -- Begin the mixing / playback thread.
+    forkIO $ playbackLoop player (newMixer 1000000 s chan)
     mainLoop sock chan 0
     simpleFree player
 
+-- | Mixing / playback thread entry points.  Simply grabs fixed-sized frames
+-- from the audio mixer and plays them back.
 playbackLoop :: Simple -> Mixer -> IO ()
 playbackLoop player mixer = do
         (msg, mixer') <- getFrame mixer 12000
         playAudio player msg
         playbackLoop player mixer'
 
-stereoPcm16 :: SampleSpec
-stereoPcm16 = SampleSpec (S16 LittleEndian) 48000 2
-
+-- | SampleSpec for playback.  Little endian signed PCM16; single channel.
 monoPcm16 = SampleSpec (S16 LittleEndian) 48000 1
 
-monoPcm16Cd = SampleSpec (S16 LittleEndian) 44100 1
-
-stereoPositions :: [ChannelPosition]
-stereoPositions = [(ChannelNormal PanLeft), (ChannelNormal PanRight)]
-
-type Msg = (Int, String)
-type Packet = (Int, [Word16])
-type RawPacket = (Int, [Word16])
-
--- |FIXME for now, always have half-second long stereo packets.
-packLen :: Word16
-packLen = 48000
-
+-- | Main server loop entry point.
+-- Args:
+--      sock: socket to accept connections on
+--      chan: singleton packet channel to write incoming packets to
+--      msgNum: FIXME remove
 mainLoop :: Socket -> TChan T.PktType -> Int -> IO ()
 mainLoop sock chan msgNum = do
-  -- FIXME use host and port?
   (hdl, h, p) <- accept sock
   putStrLn $ "New connection from " ++ h ++ ":" ++ (show p)
   forkIO (runConn hdl chan msgNum)
   mainLoop sock chan $! msgNum + 1
  
--- | FIXME remove.
-testPacket :: [Word16]
-testPacket = [packLen] ++ [0..(packLen - 1)]
-
+-- | Connection handler for server mode.
+-- Args:
+--      hdl: handle to connection
+--      chan: packet channel to write incoming RTP packets to
+--      msgNum: FIXME remove
 runConn :: Handle -> TChan T.PktType -> Int -> IO ()
 runConn hdl chan msgNum = do
     let broadcast msg = writeTChan chan msg
---    hdl <- socketToHandle sock ReadWriteMode
     hSetBuffering hdl NoBuffering
     hSetBinaryMode hdl True
 
     commLine <- atomically $ dupTChan chan
-
-    -- fork off a thread for reading from the duplicated channel
-{-    reader <- forkIO $ fix $ \loop -> do
-        (nextNum, audio) <- readChan commLine
-        when (msgNum /= nextNum) $ playAudio audio
-        loop
--} 
     handle (\(SomeException _) -> return ()) $ fix $ \loop -> do
-        --rawPacket <- allocaArray actualPackLen (readPacket hdl 48024) -- FIXME ugly int cast
+        -- New immutable array for receiving binary data off the socket.
         let inArray = listArray (0, 48023) (take 48024 (repeat 0)) :: Chunk
+        -- Mutate by reading in binary data.
         mutArray <- thaw inArray
         bytesRead <- hGetArray hdl mutArray 48024
         filled <- toInPack <$> freeze mutArray
         case bytesRead of
             48024 -> do
+                -- Parse what we've just read in.
                 case P.doParse filled of
                     Just pkt -> (atomically $ broadcast pkt) >> loop
                     Nothing  -> putStrLn $ "Error occurred parsing RTP packet."
             _     -> putStrLn $ "An error occurred: only read " ++ (show bytesRead) ++ " bytes."
-             -- If an exception is caught, send a message and break the loop
-             -- "quit" -> hPutStrLn hdl "Bye!"
-             -- else, continue looping.
-             -- _      -> broadcast (name ++ ": " ++ line) >> loop
  
-    --killThread reader                      -- kill after the loop ends
     putStrLn "Closing connection."
     hClose hdl                             -- close the handle
 
--- |Read a packet of length 'n' of types 'a' from the handle into the buffer
--- 'buf'.
---readPacket :: (Storable a) => Handle -> Int -> Ptr a -> IO (Either String [a])
--- FIXME find out a way to keep this generic.  Type inference at call-site?
-readPacket :: Handle -> Int -> Ptr Word16 -> IO (Either String [Word16])
-readPacket hdl n buf = do
-    bytesRead <- hGetBuf hdl buf (n * 2)
-    --case bytesRead of
-    -- FIXME this indentation
-    ret bytesRead buf where
-        ret b buffer | b == (n * 2) = Right <$> peekArray n buffer -- FIXME 2 magic number (need sizeof)
-                     | otherwise = return (Left $ ("only read " ++ (show b) ++ " bytes"))
-
--- |FIXME not really implemented.
+-- | Play back audio from a packet. This blocks until the packet is "nearly"
+-- played back.
+-- Args:
+--      player: endpoint audio renderer handle
+--      p: packet to play audio from
 playAudio :: Simple -> T.PktType -> IO ()
 playAudio player p = do
-    putStrLn "p1"
     putStrLn $ "playing packet with length " ++ (show $ length $ R.payload p)
-    putStrLn "p2"
     simpleWrite player (R.payload p)
 
