@@ -21,6 +21,7 @@ import System.Environment (getArgs)
 import Sound.Pulse.Simple
 import Audio.Mixer
 import Audio.Mixer.Sources
+import qualified Audio.Mixer.Types as T
 -- FIXME remove; put in lib only!
 import qualified Net.RTP as R
 import qualified Net.PacketParsing as P
@@ -169,7 +170,7 @@ type RawPacket = (Int, [Word16])
 packLen :: Word16
 packLen = 48000
 
-mainLoop :: Socket -> TChan (R.Packet [Word16]) -> Int -> IO ()
+mainLoop :: Socket -> TChan T.PktType -> Int -> IO ()
 mainLoop sock chan msgNum = do
   -- FIXME use host and port?
   (hdl, h, p) <- accept sock
@@ -181,7 +182,7 @@ mainLoop sock chan msgNum = do
 testPacket :: [Word16]
 testPacket = [packLen] ++ [0..(packLen - 1)]
 
-runConn :: Handle -> TChan (R.Packet [Word16]) -> Int -> IO ()
+runConn :: Handle -> TChan T.PktType -> Int -> IO ()
 runConn hdl chan msgNum = do
     let broadcast msg = writeTChan chan msg
 --    hdl <- socketToHandle sock ReadWriteMode
@@ -231,10 +232,8 @@ readPacket hdl n buf = do
                      | otherwise = return (Left $ ("only read " ++ (show b) ++ " bytes"))
 
 -- |FIXME not really implemented.
-playAudio :: Simple -> R.Packet [Word16] -> IO ()
+playAudio :: Simple -> T.PktType -> IO ()
 playAudio player p = do
     putStrLn $ "Playing packet of length " ++ (show $ length $ R.payload p)
     simpleWrite player (R.payload p)
-    --threadDelay 500000 -- Half a second.  FIXME.
-    --simpleWrite player p
 

@@ -16,7 +16,9 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Audio.Mixer
+                     , Audio.Mixer.Extensions
                      , Audio.Mixer.Sources
+                     , Audio.Mixer.Types
                      , Audio.Mixer.Utils
 -- FIXME consider removing dependency on network-house here.  We only really
 -- need a data format and a timestamp...

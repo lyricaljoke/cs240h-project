@@ -13,24 +13,24 @@ import qualified Net.RTP as R
 import Control.Concurrent.STM.TChan
 import Control.Concurrent.MVar
 import Control.Monad.STM
+import Audio.Mixer.Extensions
+import qualified Audio.Mixer.Types as T
 import Audio.Mixer.Utils
-
-type PktType = R.Packet [Word16]
 
 -- TODO add extension header support for source leveling
 
 -- | FIXME
 data Mixer =
-    Mixer { -- Maximum time the mixer will wait before dropping PktType frame
-            -- from PktType particular channel.  This does not include any kind of
+    Mixer { -- Maximum time the mixer will wait before dropping T.PktType frame
+            -- from T.PktType particular channel.  This does not include any kind of
             -- rendering / endpoint playback latency.  FIXME consider Integer
             acceptableLatencyUs :: Int
             -- FIXME
           , sourceId :: Word32
             -- comms channel for receiving all packets
-          , channel :: TChan PktType
+          , channel :: TChan T.PktType
             -- FIXME.
-          , buffers :: M.Map Word32 [PktType]
+          , buffers :: M.Map Word32 [T.PktType]
             -- FIXME
           , nextStartTimeUs :: Integer
             -- FIXME
@@ -45,11 +45,11 @@ sliceToGrab :: Mixer -> Int
 sliceToGrab mix = (latUs mix) `div` 4
 
 -- | FIXME.
-newMixer :: Int -> Word32 -> TChan PktType -> Mixer
+newMixer :: Int -> Word32 -> TChan T.PktType -> Mixer
 newMixer lat id chan = Mixer lat id chan M.empty 0 0
 
 -- | Get the next frame from the mixer.
-getFrame :: Mixer -> Int -> IO (PktType, Mixer)
+getFrame :: Mixer -> Int -> IO (T.PktType, Mixer)
 getFrame mix samples = do
     ts <- getSystemTimeUs
     let cutoffUs = sliceStart mix ts
@@ -82,7 +82,7 @@ updateRecords mix timestamp packetNum = mix { nextStartTimeUs = timestamp, packe
 -- packets. This should only be called on a list of packets that has been
 -- culled of old packets (the 'start' timestamp should be within the first
 -- packet).
-getSlice :: [PktType] -> Integer -> Int -> [Word16]
+getSlice :: [T.PktType] -> Integer -> Int -> [Word16]
 getSlice pkts start samps =
     let startSample = sampleNumberAtTime start (head pkts)
         adjStart = max startSample 0
@@ -117,12 +117,12 @@ cullOldPackets mix cutoffUs =
     --    newBuffers = 
 
 -- | FIXME.
-cullAccum :: Integer -> CullInfo -> Word32 -> [PktType] -> (CullInfo, [PktType])
+cullAccum :: Integer -> CullInfo -> Word32 -> [T.PktType] -> (CullInfo, [T.PktType])
 cullAccum cutoffUs info ssrc pkts =
     let (kept, culled) = L.partition ((flip isntObsolete) cutoffUs) pkts
     in (M.insertWith (+) ssrc (length culled) info, kept)
 
-isntObsolete :: PktType -> Integer -> Bool
+isntObsolete :: T.PktType -> Integer -> Bool
 isntObsolete p cutoffUs = sampleNumberAtTime cutoffUs p < L.length (R.payload p)
 
 -- FIXME.
@@ -131,11 +131,11 @@ rtpVersion = 2 :: Word8
 payloadType = 999
 
 
-sampleNumberAtTime :: Integer -> PktType -> Int
+sampleNumberAtTime :: Integer -> T.PktType -> Int
 sampleNumberAtTime tUs pkt =
     round $ (fromIntegral (tUs - (fromIntegral $ R.timestamp $ R.header pkt))) * fs / 1000000
 
--- | Get the acceptable latency value of PktType channel in microseconds.
+-- | Get the acceptable latency value of T.PktType channel in microseconds.
 latUs :: Mixer -> Int
 latUs = acceptableLatencyUs
 
